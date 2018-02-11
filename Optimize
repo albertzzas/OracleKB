@@ -1,0 +1,974 @@
+分析函数案例1_排名论次.sql
+
+--关于MAX MIN AVG SUM COUNT的统计函数就没有必要再说了，说说特别的ROW_NUMBER RANK DENSE_RNAK FIRST FIRST_VALUE LAST LAST_VALUE LAG LEAD 等排序函数。
+
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 7000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5
+col hire_date FORMAT DATE
+
+
+
+SELECT * from emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL
+------ ----- ------- -------------- -----
+   101 Tom        20 21-9月 -89      2000
+   102 Mike       20 13-1月 -93      8000
+   120 John       50 18-7月 -96      1000
+   121 Joy        50 10-4月 -97      1000
+   122 Rich       50 01-5月 -95      4000
+   123 Kate       50 10-10月-97      4000
+   124 Jess       50 16-11月-99      7000
+   100 Stev       10 01-1月 -90      7000
+   
+   
+
+ -----案例1之取各组的最高或者最低收入者
+ 
+--找各组收入最低的
+ 
+SELECT  emp_id, ename, dept_id, hire_date,sal
+  FROM (SELECT emp.*,
+               row_number() OVER(PARTITION BY dept_id ORDER BY sal) AS  N
+          FROM emp)
+ WHERE N = 1;
+ 
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL   
+------ ----- ------- -------------- ----- --
+   100 Stev       10 01-1月 -90      7000   
+   101 Tom        20 21-9月 -89      2000   
+   120 John       50 18-7月 -96      1000   
+   
+
+
+
+--找各组收入最高的
+
+SELECT  emp_id, ename, dept_id, hire_date,sal
+  FROM (SELECT emp.*,
+               row_number() OVER(PARTITION BY dept_id ORDER BY sal DESC) AS  N
+          FROM emp)
+ WHERE N = 1;
+ 
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL  
+------ ----- ------- -------------- ----- -
+   100 Stev       10 01-1月 -90      7000  
+   102 Mike       20 13-1月 -93      8000  
+   124 Jess       50 16-11月-99      7000  
+   
+    
+ 
+ 
+---如果要考虑并列，就须要用下面的，就要用RANK或DENSE_RANK(以下例子顺便 开启set autotrace on 来看看分析函数和非分析函数写法的性能差异)
+ 
+SET autotrace ON 
+SET linesize 1000
+SET pagesize 2000
+ 
+--找各组收入最低的
+--用分析函数实现 
+SELECT  emp_id, ename, dept_id, hire_date,sal
+  FROM (SELECT emp.*,
+               dense_rank() OVER(PARTITION BY dept_id ORDER BY sal ) AS  N
+          FROM emp)
+ WHERE N = 1;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL 
+------ ----- ------- -------------- ----- 
+   100 Stev       10 01-1月 -90      7000 
+   101 Tom        20 21-9月 -89      2000 
+   120 John       50 18-7月 -96      1000 
+   121 Joy        50 10-4月 -97      1000 
+   
+
+
+分析函数写法的执行计划
+---------------------------------------------------------------------------------
+Plan hash value: 3291446077
+---------------------------------------------------------------------------------
+| Id  | Operation                | Name | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT         |      |     8 |   680 |     4  (25)| 00:00:01 |
+|*  1 |  VIEW                    |      |     8 |   680 |     4  (25)| 00:00:01 |
+|*  2 |   WINDOW SORT PUSHED RANK|      |     8 |   576 |     4  (25)| 00:00:01 |
+|   3 |    TABLE ACCESS FULL     | EMP  |     8 |   576 |     3   (0)| 00:00:01 |
+---------------------------------------------------------------------------------
+统计信息
+----------------------------------------------------------------------------
+          0  recursive calls
+          0  db block gets
+          7  consistent gets
+          0  physical reads
+          0  redo size
+        786  bytes sent via SQL*Net to client
+        415  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          1  sorts (memory)
+          0  sorts (disk)
+          4  rows processed
+          
+          
+---这用普通语句来实现，如下：
+WITH t as
+ (SELECT dept_id, min(sal) as min_sal FROM emp GROUP BY dept_id)
+select emp.emp_id, emp.ename, emp.dept_id, emp.hire_date,emp.sal
+  from emp, t
+ where emp.dept_id = t.dept_id
+   and emp.sal = t.min_sal;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL
+------ ----- ------- -------------- -----
+   101 Tom        20 21-9月 -89      2000
+   121 Joy        50 10-4月 -97      1000
+   120 John       50 18-7月 -96      1000
+   100 Stev       10 01-1月 -90      7000
+   
+普通SQL写法的执行计划
+-----------------------------------------------------------------------------
+Plan hash value: 2230095667
+-----------------------------------------------------------------------------
+| Id  | Operation            | Name | Rows  | Bytes | Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------
+|   0 | SELECT STATEMENT     |      |     1 |    98 |     8  (25)| 00:00:01 |
+|*  1 |  HASH JOIN           |      |     1 |    98 |     8  (25)| 00:00:01 |
+|   2 |   TABLE ACCESS FULL  | EMP  |     8 |   576 |     3   (0)| 00:00:01 |
+|   3 |   VIEW               |      |     8 |   208 |     4  (25)| 00:00:01 |
+|   4 |    HASH GROUP BY     |      |     8 |   208 |     4  (25)| 00:00:01 |
+|   5 |     TABLE ACCESS FULL| EMP  |     8 |   208 |     3   (0)| 00:00:01 |
+-----------------------------------------------------------------------------
+统计信息
+-------------------------------------------------------------------------
+          0  recursive calls
+          0  db block gets
+         14  consistent gets
+          0  physical reads
+          0  redo size
+        786  bytes sent via SQL*Net to client
+        415  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          0  sorts (memory)
+          0  sorts (disk)
+          4  rows processed 
+          
+          
+          
+   
+
+
+观察一下分析函数写法和普通写法的性能差异
+
+
+
+          
+
+
+
+  
+          
+-----案例2之取各组的最高收入头几名者（这个就略过不说了，太简单了，比如头3名，就是上述的where n=1改为n<=3）
+
+--当然，案例1中的取最高改成直接取第几名也可以，直接N=几就好了。
+========================================================
+分析函数案例2_数据去重.sql
+
+
+
+DROP TABLE t purge ;
+CREATE TABLE t AS SELECT * FROM dba_objects WHERE rownum<=10;
+UPDATE t SET object_id=rownum;
+UPDATE t SET object_id=3 WHERE object_id<=3;
+UPDATE t SET object_id=4 WHERE object_id>=4 AND object_id<=6;
+COMMIT;
+
+
+--以下例子顺便 开启set autotrace on 来看看分析函数和非分析函数写法的性能差异
+方法1：
+
+SET autotrace ON 
+SET linesize 2000
+SET pagesize 2000
+
+
+delete from t  
+where rowid <
+(select max(rowid) from t t2
+where t.object_id = t2.object_id
+);
+
+已删除4行。
+
+
+执行计划
+----------------------------------------------------------
+Plan hash value: 3804998351
+
+---------------------------------------------------------------------------------
+| Id  | Operation             | Name    | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------
+|   0 | DELETE STATEMENT      |         |     1 |    50 |     8  (25)| 00:00:01 |
+|   1 |  DELETE               | T       |       |       |            |          |
+|*  2 |   HASH JOIN           |         |     1 |    50 |     8  (25)| 00:00:01 |
+|   3 |    VIEW               | VW_SQ_1 |     6 |   150 |     4  (25)| 00:00:01 |
+|   4 |     SORT GROUP BY     |         |     6 |   150 |     4  (25)| 00:00:01 |
+|   5 |      TABLE ACCESS FULL| T       |     6 |   150 |     3   (0)| 00:00:01 |
+|   6 |    TABLE ACCESS FULL  | T       |     6 |   150 |     3   (0)| 00:00:01 |
+---------------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   2 - access("T"."OBJECT_ID"="ITEM_1")
+       filter(ROWID<"MAX(ROWID)")
+
+Note
+-----
+   - dynamic sampling used for this statement (level=2)
+
+
+统计信息
+----------------------------------------------------------
+         50  recursive calls
+          6  db block gets
+         40  consistent gets
+          0  physical reads
+          0  redo size
+        684  bytes sent via SQL*Net to client
+        659  bytes received via SQL*Net from client
+          3  SQL*Net roundtrips to/from client
+          2  sorts (memory)
+          0  sorts (disk)
+          4  rows processed
+        
+ROLLBACK;
+
+--方法2(注意，这里的写法和上面的并不完全等价，上面是随便删除，保留rowid最大一条，下面是保留时间最新的，上面既然可以随便删了，下面的写法肯定也是符合要求的。其中row_number必须要有order BY 关键字）:
+
+delete t
+ where rowid in (select rid
+                   from (select rowid rid,
+                                row_number() over(partition by object_id ORDER by created desc) rn
+                           from t)
+                  where rn > 1);
+已删除4行。                  
+                  
+
+执行计划
+----------------------------------------------------------
+Plan hash value: 2005107446
+
+-----------------------------------------------------------------------------------------
+| Id  | Operation                    | Name     | Rows  | Bytes | Cost (%CPU)| Time     |
+-----------------------------------------------------------------------------------------
+|   0 | DELETE STATEMENT             |          |     1 |    24 |     6  (34)| 00:00:01 |
+|   1 |  DELETE                      | T        |       |       |            |          |
+|   2 |   NESTED LOOPS               |          |     1 |    24 |     6  (34)| 00:00:01 |
+|   3 |    VIEW                      | VW_NSO_1 |     6 |    72 |     4  (25)| 00:00:01 |
+|   4 |     SORT UNIQUE              |          |     1 |   150 |            |          |
+|*  5 |      VIEW                    |          |     6 |   150 |     4  (25)| 00:00:01 |
+|   6 |       WINDOW SORT            |          |     6 |   204 |     4  (25)| 00:00:01 |
+|   7 |        TABLE ACCESS FULL     | T        |     6 |   204 |     3   (0)| 00:00:01 |
+|   8 |    TABLE ACCESS BY USER ROWID| T        |     1 |    12 |     1   (0)| 00:00:01 |
+-----------------------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   5 - filter("RN">1)
+
+Note
+-----
+   - dynamic sampling used for this statement (level=2)
+
+
+统计信息
+----------------------------------------------------------
+         48  recursive calls
+          6  db block gets
+         38  consistent gets
+          0  physical reads
+          0  redo size
+        684  bytes sent via SQL*Net to client
+        813  bytes received via SQL*Net from client
+          3  SQL*Net roundtrips to/from client
+          3  sorts (memory)
+          0  sorts (disk)
+          4  rows processed
+
+
+
+
+虽然目前来看,第一种方法效率也还可以，不过如果是多个字段重复，第一种方法就有些麻烦了,而且如果需求真的是要根据日期保留重复记录中最新的一个，也非常的繁琐了。
+
+不过这类要记住，要是表记录非常大，比如有几千万，而重复记录的数理又特别巨大，者时候可以考虑直接把不重复的数据单独建出来，也是一个灵活的好办法。
+
+
+
+
+分解过程：
+
+ SELECT object_id,rowid rid,
+          row_number() over(partition by object_id ORDER by created desc) rn
+  from t;
+
+ OBJECT_ID RID                        RN
+---------- ------------------ ----------
+         3 AAAbW0AALAABRADAAA          1
+         3 AAAbW0AALAABRADAAB          2
+         3 AAAbW0AALAABRADAAC          3
+         4 AAAbW0AALAABRADAAD          1
+         4 AAAbW0AALAABRADAAE          2
+         4 AAAbW0AALAABRADAAF          3
+         7 AAAbW0AALAABRADAAG          1
+         8 AAAbW0AALAABRADAAH          1
+         9 AAAbW0AALAABRADAAI          1
+        10 AAAbW0AALAABRADAAJ          1
+
+
+
+SELECT object_id, rid,rn
+            FROM (select object_id,rowid rid,
+                       row_number() over(partition by object_id ORDER by created desc) rn
+                   from t)
+      where rn > 1;
+
+ OBJECT_ID RID                        RN
+---------- ------------------ ----------
+         3 AAAbW0AALAABRADAAB          2
+         3 AAAbW0AALAABRADAAC          3
+         4 AAAbW0AALAABRADAAE          2
+         4 AAAbW0AALAABRADAAF          3
+         
+         
+
+--然后就可以根据这些RID,删除了，就留下一条了。
+         
+delete t
+ where rowid in (select rid
+                   from (select rowid rid,
+                                row_number() over(partition by object_id ORDER by created desc) rn
+                           from t)
+                  where rn > 1);         
+                  
+ ==================================                 
+分析函数案例3_占比应用.sql
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',     20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',    20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',    50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',     50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',    50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',    50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',    50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',    10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5
+col hire_date FORMAT DATE
+
+
+
+
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,
+ ratio_to_report(sal) OVER () as pct1l,
+ ratio_to_report(sal) OVER (partition by dept_id) as pct2
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL      PCT1L       PCT2
+------ ----- ------- -------------- ----- ---------- ----------
+   100 Stev       10 01-1月 -90      7000 .194444444          1
+   101 Tom        20 21-9月 -89      2000 .055555556         .2
+   102 Mike       20 13-1月 -93      8000 .222222222         .8
+   124 Jess       50 16-11月-99      6000 .166666667 .315789474
+   123 Kate       50 10-10月-97      5000 .138888889 .263157895
+   122 Rich       50 01-5月 -95      3000 .083333333 .157894737
+   120 John       50 18-7月 -96      1000 .027777778 .052631579
+   121 Joy        50 10-4月 -97      4000 .111111111 .210526316
+
+
+
+--如果用普通的写法来实现，要泪流满面了。
+
+
+
+
+
+
+
+--注，以下写法会出错：  
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,
+  ratio_to_report(sal) OVER (partition by dept_id order by sal) as pct3
+FROM emp;
+
+ORA-30487: ORDER BY 在此禁用
+===============================================
+分析函数案例4_连续值判定.sql
+drop table t purge;
+create table t (id1 int,id2 int ,id3 int);
+insert into t (id1 ,id2,id3) values (1,45,89);
+insert into t (id1 ,id2,id3) values (2,45,89);
+insert into t (id1 ,id2,id3) values (3,45,89);
+insert into t (id1 ,id2,id3) values (8,45,89);
+insert into t (id1 ,id2,id3) values (12,45,89);
+insert into t (id1 ,id2,id3) values (36,45,89);
+insert into t (id1 ,id2,id3) values (22,45,89);
+insert into t (id1 ,id2,id3) values (23,45,89);
+insert into t (id1 ,id2,id3) values (89,45,89);
+insert into t (id1 ,id2,id3) values (92,45,89);
+insert into t (id1 ,id2,id3) values (91,45,89);
+insert into t (id1 ,id2,id3) values (90,45,89);
+commit;
+
+SQL> select * from t;
+
+       ID1        ID2        ID3
+---------- ---------- ----------
+         1         45         89
+         2         45         89
+         3         45         89
+         8         45         89
+        12         45         89
+        36         45         89
+        22         45         89
+        23         45         89
+        89         45         89
+        92         45         89
+        91         45         89
+        90         45         89
+
+--需求1：将连续数据查找出来，要达到如下效果
+
+ID1 ID2 ID3
+----------- 
+1 45 89
+2 45 89
+3 45 89
+22 45 89
+23 45 89
+89 45 89
+90 45 89
+91 45 89
+92 45 89
+
+
+--需求22： 要求查出连续数据，并且要写出最小值和最大值及连续的个数，效果如下
+ 
+1   3   3
+22  23  2
+89  92  4
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+select t.*,
+               lag(id1,1,0) over(order by id1) av, ---构造出伪列av
+               lead(id1,1,0) over(order by id1) ev ---构造出伪列ev
+          from t;
+          
+          
+      ID1        ID2        ID3         AV         EV
+--------- ---------- ---------- ---------- ----------
+        1         45         89          0          2
+        2         45         89          1          3
+        3         45         89          2          8
+        8         45         89          3         12
+       12         45         89          8         22
+       22         45         89         12         23
+       23         45         89         22         36
+       36         45         89         23         89
+       89         45         89         36         90
+       90         45         89         89         91
+       91         45         89         90         92
+       92         45         89         91          0
+        
+select id1, id2, id3
+  from (select t.*,
+               lag(id1,1,0)  over(order by id1)  av,
+               lead(id1,1,0) over(order by id1) ev
+          from t) a
+ where id1 - 1 = av
+    or id1 + 1=  ev;
+        
+        
+        
+        
+--思考中间环节（构造）
+
+SELECT id1,
+       id2,
+       id3,
+       ROW_NUMBER() OVER(ORDER BY id1) - ID1 AS group_id                 
+FROM t                 ;
+
+       ID1        ID2        ID3   GROUP_ID
+---------- ---------- ---------- ----------
+         1         45         89          0
+         2         45         89          0
+         3         45         89          0
+         8         45         89         -4
+        12         45         89         -7
+        22         45         89        -16
+        23         45         89        -16
+        36         45         89        -28
+        89         45         89        -80
+        90         45         89        -80
+        91         45         89        -80
+        92         45         89        -80
+
+
+
+--在构造的中间环节的基础上，实现了需求1
+
+SELECT id1, id2, id3
+  FROM (        
+        SELECT id1, id2, id3, COUNT(*) OVER(PARTITION BY group_id) CNT        
+          FROM (                
+                 SELECT id1,
+                         id2,
+                         id3,
+                         ROW_NUMBER() OVER(ORDER BY id1) - ID1 AS group_id                 
+                   FROM t                 
+                 )        
+        )
+ WHERE CNT > 1
+ ORDER BY id1;
+
+
+
+
+
+
+--同样在构造的中间环节的基础上，实现了需求2
+
+
+SELECT MIN(id1), MAX(id1), COUNT(*)
+  FROM (SELECT id1,
+               id2,
+               id3,
+               ROW_NUMBER() OVER(ORDER BY id1) - ID1 AS group_id
+          FROM t)
+HAVING COUNT(*) > 1
+ GROUP BY group_id
+ ORDER BY 1;
+
+
+===========================================
+
+分析函数案例5_高频数获取.sql
+
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5
+col hire_date FORMAT DATE
+
+
+SQL> select * from emp;
+
+    EMP_ID ENAME          DEPT_ID HIRE_DATE             SAL
+---------- ---------------------- -------------- ----------
+       101 Tom                 20 21-9月 -89           2000
+       102 Mike                20 13-1月 -93           8000
+       120 John                50 18-7月 -96           1000
+       121 Joy                 50 10-4月 -97           4000
+       122 Rich                50 01-5月 -95           4000
+       123 Kate                50 10-10月-97           4000
+       124 Jess                50 16-11月-99           6000
+       100 Stev                10 01-1月 -90           7000
+       
+--出现频率最高的工资水平是多少
+
+--分析：
+SELECT sal,COUNT(*) repeat_num
+             FROM emp
+            GROUP BY sal;
+
+       SAL REPEAT_NUM
+---------- ----------
+      1000          1
+      4000          3
+      2000          1
+      8000          1
+      6000          1
+      7000          1
+      
+ --     
+
+SET autotrace ON 
+SET linesize 1000
+SET pagesize 2000
+
+
+      
+SELECT sal
+  FROM
+  (
+    SELECT sal,RANK() OVER(ORDER BY repeat_num DESC) rank_repeat_num 
+	  FROM
+	  (
+	    SELECT sal,COUNT(*) repeat_num 
+	      FROM emp
+	     GROUP BY sal
+	  )
+  )  
+ WHERE rank_repeat_num=1;
+
+  SAL
+-----
+ 4000
+
+用分析函数写法的执行计划
+----------------------------------------------------------
+Plan hash value: 214435687
+---------------------------------------------------------------------------------
+| Id  | Operation                | Name | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT         |      |     8 |   208 |     5  (40)| 00:00:01 |
+|*  1 |  VIEW                    |      |     8 |   208 |     5  (40)| 00:00:01 |
+|*  2 |   WINDOW SORT PUSHED RANK|      |     8 |   104 |     5  (40)| 00:00:01 |
+|   3 |    HASH GROUP BY         |      |     8 |   104 |     5  (40)| 00:00:01 |
+|   4 |     TABLE ACCESS FULL    | EMP  |     8 |   104 |     3   (0)| 00:00:01 |
+---------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   1 - filter("RANK_REPEAT_NUM"=1)
+   2 - filter(RANK() OVER ( ORDER BY COUNT(*) DESC )<=1)
+统计信息
+----------------------------------------------------------
+          0  recursive calls
+          0  db block gets
+          7  consistent gets
+          0  physical reads
+          0  redo size
+        418  bytes sent via SQL*Net to client
+        415  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          1  sorts (memory)
+          0  sorts (disk)
+          1  rows processed
+
+
+---不用分析函数，写法比较麻烦，很繁琐
+
+select sal
+  from (SELECT sal, COUNT(*) as repeat_num FROM emp GROUP BY sal) t
+ where t.repeat_num =
+       (select max(repeat_num)
+          from (SELECT sal, COUNT(*) as repeat_num FROM emp GROUP BY sal));
+
+  SAL
+-----
+ 4000
+          
+用普通写法的执行计划
+-----------------------------------------------------------------------------
+Plan hash value: 3118377657
+------------------------------------------------------------------------------
+| Id  | Operation             | Name | Rows  | Bytes | Cost (%CPU)| Time     |
+------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT      |      |     8 |   104 |     4  (25)| 00:00:01 |
+|*  1 |  FILTER               |      |       |       |            |          |
+|   2 |   HASH GROUP BY       |      |     8 |   104 |     4  (25)| 00:00:01 |
+|   3 |    TABLE ACCESS FULL  | EMP  |     8 |   104 |     3   (0)| 00:00:01 |
+|   4 |   SORT AGGREGATE      |      |     1 |    13 |            |          |
+|   5 |    VIEW               |      |     8 |   104 |     4  (25)| 00:00:01 |
+|   6 |     SORT GROUP BY     |      |     8 |   104 |     4  (25)| 00:00:01 |
+|   7 |      TABLE ACCESS FULL| EMP  |     8 |   104 |     3   (0)| 00:00:01 |
+------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   1 - filter(COUNT(*)= (SELECT MAX("REPEAT_NUM") FROM  (SELECT "SAL"
+              "SAL",COUNT(*) "REPEAT_NUM" FROM "EMP" "EMP" GROUP BY "SAL")
+              "from$_subquery$_003"))
+统计信息
+----------------------------------------------------------
+          0  recursive calls
+          0  db block gets
+         14  consistent gets
+          0  physical reads
+          0  redo size
+        418  bytes sent via SQL*Net to client
+        415  bytes received via SQL*Net from client
+          2  SQL*Net roundtrips to/from client
+          1  sorts (memory)
+          0  sorts (disk)
+          1  rows processed          
+          
+          
+          ====================================
+分析函数案例6_计费规则计算.sql
+
+/*
+结算规则配置方案
+1、 用IF_jieti字段来区分是否是阶梯，0为非阶梯，1为半阶梯，2为全阶梯
+2、 用price_type字段来区分算法是百分比还是固定值 （无论全阶梯、半阶梯还是非阶梯算法，最终都
+是离不开百分比和固定值选择）
+3、 IF_jieti字段和price_type字段的组合可以定义出全部的配置类型
+
+名词解释
+
+全阶梯定义：就是比如0-50不分成，给0元。50-100，4：6开，101-200，5：5开，201以上6：4开。
+这个时候有300元，是0.4*100+100*0.5+100*0.6=150 这个就是全阶梯 （并非0.4*50+100*0.5+100*0.6）
+如果这个时候是20元呢，那SP的钱就是0，没得分！
+半阶梯是300元总金额不要再去截断了，直接乘落在哪段的比例：300*0.6=180
+
+
+以下脚本建立配置表中暂且配置了4个SP，分别为a,b,c,d，分别对应一下四个类型
+
+
+测试脚本一股脑儿扔到COMMAND下执行，然后看结果就好了！
+
+*/
+
+drop table test_rule purge;
+create table TEST_RULE
+( 
+  IF_jieti  number,
+  SP_NAME    VARCHAR2(10),
+  PRICE_TYPE NUMBER,
+  SP_PARAM   NUMBER,
+  TEL_PARAM  NUMBER,
+  TOTAL1     NUMBER,
+  TOTAL2     NUMBER
+);
+-- Add comments to the columns 
+comment on column TEST_RULE.IF_JIETI
+  is '用来判断是否阶梯，0为非阶梯，1为半阶梯（不需分段算），2为全阶梯（需分段算）';
+comment on column TEST_RULE.SP_NAME
+  is 'sp名';
+comment on column TEST_RULE.PRICE_TYPE
+  is '分成类型（1表示比率，2为固定金额）';
+comment on column TEST_RULE.SP_PARAM
+  is 'sp比率或金额';
+comment on column TEST_RULE.TEL_PARAM
+  is '电信比率或金额';
+comment on column TEST_RULE.TOTAL1
+  is '金额范围开始';
+comment on column TEST_RULE.TOTAL2
+  is '金额范围开始';
+  
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (0,'a', 1, 40, 60, null, null);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (0,'b', 2, 800, null, null, null);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (1,'c', 1, 30, 70, 0, 500);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (1,'c', 1, 40, 60, 501, 1000);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (1,'c', 1, 50, 50, 1001, 2000);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (1,'c', 1, 60, 40, 2001, 9999999);
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (2,'d', 2, 0, null, 0, 500);      
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (2,'d', 1, 40, 60, 501, 1000);    
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (2,'d', 1, 50, 50, 1001, 2000);   
+insert into TEST_RULE (if_jieti,sP_NAME, PRICE_TYPE, SP_PARAM, TEL_PARAM, TOTAL1, TOTAL2) values (2,'d', 1, 60, 40, 2001, 9999999);    
+commit;
+  
+--略去一堆字段
+drop table ticket purge;
+create table TICKET
+(
+  ID_NAME     number,
+  SP_NAME     VARCHAR2(10),
+  TOTAL_PRICE NUMBER
+);
+
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (121,'a', 100);
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (222,'b', 1000);
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (387,'c', 100 );
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (645,'c', 600 );
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (555,'c', 1200);
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (987,'d', 100 );
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (333,'d', 600 );
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (221,'d', 1200);
+insert into TICKET (ID_NAME,SP_NAME, TOTAL_PRICE) values (528,'d', 5000);
+commit;
+
+
+希望
+
+SP_NAME    TOTAL_PRICE   SP_PRICE TELE_PRICE       PAID
+---------- ----------- ---------- ---------- ----------
+a                  100                               40
+b                 1000                              800
+c                  100                               30
+c                  600                              240
+c                 1200                              600
+d                  100                                0
+d                  600                              240
+d                 1200                              500
+d                 5000                             2700
+
+
+       
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+分解思考思路：
+SET linesize 2000
+SET pagesize 2000
+
+
+select t.* ,LAG(total1) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1) start_val from test_rule t;
+
+  IF_JIETI SP_NAME    PRICE_TYPE   SP_PARAM  TEL_PARAM     TOTAL1     TOTAL2  START_VAL
+---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+         0 a                   1         40         60
+         0 b                   2        800
+         1 c                   1         30         70          0        500
+         1 c                   1         40         60        501       1000          0
+         1 c                   1         50         50       1001       2000        501
+         1 c                   1         60         40       2001    9999999       1001
+         2 d                   2          0                     0        500
+         2 d                   1         40         60        501       1000          0
+         2 d                   1         50         50       1001       2000        501
+         2 d                   1         60         40       2001    9999999       1001
+
+已选择10行。
+
+
+
+SELECT r.*, DECODE(LAG(total1) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1),0,1,total1) AS start_val
+          FROM TEST_RULE r;
+          
+          
+
+  IF_JIETI SP_NAME    PRICE_TYPE   SP_PARAM  TEL_PARAM     TOTAL1     TOTAL2  START_VAL
+---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+         0 a                   1         40         60
+         0 b                   2        800
+         1 c                   1         30         70          0        500          0
+         1 c                   1         40         60        501       1000          1
+         1 c                   1         50         50       1001       2000       1001
+         1 c                   1         60         40       2001    9999999       2001
+         2 d                   2          0                     0        500          0
+         2 d                   1         40         60        501       1000          1
+         2 d                   1         50         50       1001       2000       1001
+         2 d                   1         60         40       2001    9999999       2001
+
+已选择10行。
+
+SELECT r.* 
+      ,SUM((TOTAL2-start_val+1)*sp_param/100) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1) - (TOTAL2-start_val+1)*sp_param/100
+       AS ACCUM
+  FROM (SELECT r.*, DECODE(LAG(total1) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1),0,1,total1) AS start_val
+          FROM TEST_RULE r
+       ) r;
+       
+  IF_JIETI SP_NAME    PRICE_TYPE   SP_PARAM  TEL_PARAM     TOTAL1     TOTAL2  START_VAL      ACCUM
+---------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+         0 a                   1         40         60
+         0 b                   2        800
+         1 c                   1         30         70          0        500          0          0
+         1 c                   1         40         60        501       1000          1      150.3
+         1 c                   1         50         50       1001       2000       1001      550.3
+         1 c                   1         60         40       2001    9999999       2001     1050.3
+         2 d                   2          0                     0        500          0          0
+         2 d                   1         40         60        501       1000          1          0
+         2 d                   1         50         50       1001       2000       1001        400
+         2 d                   1         60         40       2001    9999999       2001        900
+
+已选择10行。
+                       
+WITH new_rule AS 
+(SELECT r.* 
+      ,SUM((TOTAL2-start_val+1)*sp_param/100) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1) - (TOTAL2-start_val+1)*sp_param/100
+       AS ACCUM
+  FROM (SELECT r.*, DECODE(LAG(total1) OVER (PARTITION BY SP_NAME ORDER BY TOTAL1),0,1,total1) AS start_val
+          FROM TEST_RULE r
+       ) r
+)
+SELECT t.*
+      ,(CASE WHEN n.if_jieti =2 THEN
+            (t.total_price-start_val+1)*n.sp_param/100 + n.accum
+        ELSE DECODE(n.price_type,1,round(t.total_price*n.sp_param/100,2)
+                  ,n.sp_param
+                   )
+        END) as paid
+  FROM ticket t, new_rule n
+WHERE n.sp_name = t.sp_name
+       AND (if_jieti = 0 OR if_jieti>0 AND t.total_price BETWEEN n.TOTAL1 AND n.TOTAL2) ;
+       
+       
+   ID_NAME SP_NAME    TOTAL_PRICE    PAID
+------- ---------------------------------
+    121     a               100         40
+    222     b              1000        800
+    387     c               100         30
+    645     c               600        240
+    555     c              1200        600
+    987     d               100          0
+    333     d               600        240
+    221     d              1200        500
+    528     d              5000       2700
+                         
+
+
+   
