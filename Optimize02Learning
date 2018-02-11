@@ -1,0 +1,958 @@
+分析函数学习之_order by说明.sql
+
+/*
+
+有ORDER BY的存在将添加一个默认的开窗子句！意味着从第一行到当前行；
+没有ORDER BY时,默认的窗口是全部的分区 ；
+在Order by 子句后可以添加nulls last,如:order by comm desc nulls last   表示排序时忽略comm列为空的行.   
+
+
+ 不写between AND  ,在有order BY 的情况下，就是分组第一行到当前行                        BETWEEN unbounded preceding  and current row
+ 不写between AND  ,在没有order BY 的情况下，就是分组第一行到分组最后一行；              BETWEEN unbounded preceding and unbounded following 
+
+ 此外记住，在RANGE的开窗中，ORDER BY中只能有一列；ROWS的开窗的ORDER BY 可以有多列。  
+  
+*/
+
+
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  NULL, 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col ename format a5
+
+SELECT
+  emp_id,ename,dept_id,hire_date,sal,
+  SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) sum_sal1,
+  SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date DESC) sum_sal2,  
+  SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date DESC nulls LAST) sum_sal3,  
+  SUM(sal) OVER (PARTITION BY dept_id ) sum_sal4,
+  SUM(sal) OVER ( ) sum_sal5
+  FROM emp;
+
+
+EMP_ID ENAME DEPT_ID HIRE_DATE             SAL   SUM_SAL1   SUM_SAL2   SUM_SAL3   SUM_SAL4   SUM_SAL5
+------ ----- ------- -------------- ---------- ---------- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90           7000       7000       7000       7000       7000      36000
+   101 Tom        20 21-9月 -89           2000       2000      10000      10000      10000      36000
+   102 Mike       20 13-1月 -93           8000      10000       8000       8000      10000      36000
+   120 John       50 18-7月 -96           1000       1000      19000      16000      19000      36000
+   121 Joy        50 10-4月 -97           4000       5000      18000      15000      19000      36000
+   123 Kate       50 10-10月-97           5000      10000      14000      11000      19000      36000
+   124 Jess       50 16-11月-99           6000      16000       9000       6000      19000      36000
+   122 Rich       50                      3000      19000       3000      19000      19000      36000
+=========================================
+分析函数学习之_函数分类.sql
+
+/*函数应用主要分为如下4类：
+
+ 1 统计函数（MAX MIN AVG SUM COUNT等）
+ 2.排序函数（ROW_NUMBER RANK DENSE_RNAK FIRST FIRST_VALUE LAST LAST_VALUE LAG LEAD 等）
+ 3.数据分布函数（NTILE CUME_DIST PERCENT_RANK  PERCENTILE_CON  PERCENTILE_DISC RATIO_TO_REPORT 等）
+ 4.数学分析函数（CORR  COVAR_POP  COVAR_SAMP  STDDEV  STDDEV_SAMP  VAR_POP  VAR_SAMP  VARIANCE 等）
+ 
+ 对于大部分人员来说，用的最多的是第1和第2类。后面两类可以暂时不用关注（特别说明，第3类中的RATIO_TO_REPORT倒是用的频率还不小）
+ 
+ 此外由于统计函数似乎过于简单，大家都明白具体的用途，也没有什么必要特别再来说明，因此主要说说排序函数。
+ 
+ */
+ 
+
+
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5
+col hire_date FORMAT DATE
+col fir_val FORMAT a10
+col fir_val_desc FORMAT a10
+col last_val FORMAT a10
+col last_val_desc FORMAT a10
+
+
+
+
+
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,
+ ROW_NUMBER() OVER (PARTITION BY dept_id ORDER BY sal) AS row_number,
+ RANK() OVER (PARTITION BY dept_id ORDER BY sal) AS rank, 
+ DENSE_RANK() OVER (PARTITION BY dept_id ORDER BY sal) AS dense_rank
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL ROW_NUMBER       RANK DENSE_RANK
+------ ----- ------- -------------- ----- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90      7000          1          1          1
+   101 Tom        20 21-9月 -89      2000          1          1          1
+   102 Mike       20 13-1月 -93      8000          2          2          2
+   120 John       50 18-7月 -96      1000          1          1          1
+   123 Kate       50 10-10月-97      4000          2          2          2
+   122 Rich       50 01-5月 -95      4000          3          2          2
+   121 Joy        50 10-4月 -97      4000          4          2          2
+   124 Jess       50 16-11月-99      6000          5          5          3
+   
+   
+
+
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,  
+ MIN(sal) KEEP (DENSE_RANK FIRST ORDER BY hire_date) OVER (PARTITION BY dept_id) Worst,
+ MAX(sal) KEEP (DENSE_RANK LAST ORDER BY hire_date) OVER (PARTITION BY dept_id) Best
+FROM emp;
+
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL      WORST       BEST
+------ ----- ------- -------------- ----- ---------- ----------
+   100 Stev       10 01-1月 -90      7000       7000       7000
+   101 Tom        20 21-9月 -89      2000       2000       8000
+   102 Mike       20 13-1月 -93      8000       2000       8000
+   124 Jess       50 16-11月-99      6000       4000       6000
+   123 Kate       50 10-10月-97      4000       4000       6000
+   122 Rich       50 01-5月 -95      4000       4000       6000
+   120 John       50 18-7月 -96      1000       4000       6000
+   121 Joy        50 10-4月 -97      4000       4000       6000
+   
+
+
+
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,
+ LAG(sal) OVER (ORDER BY hire_date) AS prev_sal1,
+ LEAD(sal) OVER (ORDER BY hire_date) AS next_sal1,
+ LAG(sal, 1, 0) OVER (ORDER BY hire_date) AS prev_sal2,
+ LEAD(sal, 1,0) OVER (ORDER BY hire_date) AS next_sal2,
+ LAG(sal, 1, 0) OVER (partition BY dept_id ORDER BY hire_date) AS prev_sal3,
+ LEAD(sal, 1,0) OVER (partition BY dept_id ORDER BY hire_date) AS next_sal3,
+ LAG(sal, 2, 999) OVER (partition BY dept_id ORDER BY hire_date) AS prev_sal4,
+ LEAD(sal, 2,999) OVER (partition BY dept_id ORDER BY hire_date) AS next_sal4
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL  PREV_SAL1  NEXT_SAL1  PREV_SAL2  NEXT_SAL2  PREV_SAL3  NEXT_SAL3  PREV_SAL4  NEXT_SAL4
+------ ----- ------- -------------- ----- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+   101 Tom        20 21-9月 -89      2000                  7000          0       7000          0       8000        999        999
+   100 Stev       10 01-1月 -90      7000       2000       8000       2000       8000          0       0           999        999
+   102 Mike       20 13-1月 -93      8000       7000       3000       7000       3000       2000       0           999        999
+   122 Rich       50 01-5月 -95      3000       8000       1000       8000       1000          0       1000        999       4000
+   120 John       50 18-7月 -96      1000       3000       4000       3000       4000       3000       4000        999       5000
+   121 Joy        50 10-4月 -97      4000       1000       5000       1000       5000       1000       5000       3000       6000
+   123 Kate       50 10-10月-97      5000       4000       6000       4000       6000       4000       6000       1000        999
+   124 Jess       50 16-11月-99      6000       5000                  5000          0       5000       0          4000        999
+
+
+
+
+SELECT  
+ emp_id,ename,dept_id,hire_date,sal,
+ FIRST_VALUE(ename) OVER(PARTITION BY dept_id ORDER BY sal ) AS fir_val,
+ FIRST_VALUE(ename) OVER(PARTITION BY dept_id ORDER BY sal DESC) AS fir_val_desc, 
+ LAST_VALUE(ename) OVER(PARTITION BY dept_id ORDER BY sal ) AS last_val,
+ LAST_VALUE(ename) OVER(PARTITION BY dept_id ORDER BY sal DESC) AS last_val_desc 
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL FIR_VAL    FIR_VAL_DE LAST_VAL   LAST_VAL_D
+------ ----- ------- -------------- ----- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90      7000 Stev       Stev       Stev       Stev
+   101 Tom        20 21-9月 -89      2000 Tom        Mike       Tom        Tom
+   102 Mike       20 13-1月 -93      8000 Tom        Mike       Mike       Mike
+   120 John       50 18-7月 -96      1000 John       Jess       John       John
+   121 Joy        50 10-4月 -97      4000 John       Jess       Rich       Rich
+   123 Kate       50 10-10月-97      4000 John       Jess       Rich       Rich
+   122 Rich       50 01-5月 -95      4000 John       Jess       Rich       Rich
+   124 Jess       50 16-11月-99      6000 John       Jess       Jess       Jess
+
+=========================================
+分析函数学习之_开窗分解1_rows.sql
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',     20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',    20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',    50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',     50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',    50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',    50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',    50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',    10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5
+col hire_date FORMAT DATE
+
+
+
+
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 首先按dept_id进行分组，其次按照hire_date进行排序，然后再把入职时间小于等于自身的所有员工薪资进行累计。
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) sum_sal_part_order,
+-- 按dept_id进行分组，并统计该部门下所有员工的薪资。
+ SUM(sal) OVER (PARTITION BY dept_id) sum_sal_part,
+-- 直接按照hire_date进行分组，并再把入职时间小于等于自身的所有员工薪资进行累计。
+ SUM(sal) OVER (ORDER BY hire_date) sum_sal_order
+FROM emp order by dept_id,hire_date;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_SAL_PART_ORDER SUM_SAL_PART SUM_SAL_ORDER
+------ ----- ------- -------------- ----- ------------------ ------------ -------------
+   100 Stev       10 01-1月 -90      7000               7000         7000          9000
+   101 Tom        20 21-9月 -89      2000               2000        10000          2000
+   102 Mike       20 13-1月 -93      8000              10000        10000         17000
+   122 Rich       50 01-5月 -95      3000               3000        19000         20000
+   120 John       50 18-7月 -96      1000               4000        19000         21000
+   121 Joy        50 10-4月 -97      4000               8000        19000         25000
+   123 Kate       50 10-10月-97      5000              13000        19000         30000
+   124 Jess       50 16-11月-99      6000              19000        19000         36000
+   
+
+
+
+
+   
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 以下均为首先按dept_id进行分组，其次按照hire_date进行排序，且所有统计不能跨越其所在分区，故不再重复
+-- 窗口范围为该分区的第一行到该分区的最后一行，与sum_sal_part等同
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date   ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) sum_1_to_last,
+-- 窗口范围为该分区的第一行到本行，与sum_sal_part_order等同
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date   ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) sum_1_to_cur,
+-- 窗口范围为该分区的第一行到本行前一行，统计的是第一行到本行前一行薪资的累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date   ROWS BETWEEN UNBOUNDED PRECEDING AND 1/*value_expr*/ PRECEDING) sum_1_to_curbef1,
+ -- 窗口范围为该分区的第一行到本行后一行，统计的是第一行到本行后一行薪资的累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 FOLLOWING) sum_1_to_curaft1
+FROM emp order by dept_id,hire_date;  
+  
+   
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_1_TO_LAST SUM_1_TO_CUR SUM_1_TO_CURBEF1 SUM_1_TO_CURAFT1
+------ ----- ------- -------------- ----- ------------- ------------ ---------------- ----------------
+   100 Stev       10 01-1月 -90      7000          7000         7000                              7000
+   101 Tom        20 21-9月 -89      2000         10000         2000                             10000              解说SUM1_TO_CUR(dept_id=50部分）                                                               解说SUM1_TO_CURaft1 (dept_id=50部分）                                                      
+   102 Mike       20 13-1月 -93      8000         10000        10000             2000            10000                                                                                                                                                                             
+   122 Rich       50 01-5月 -95      3000         19000         3000                              4000   ---从第1行hiredates顺序到当前行(也就是到第1行），多少？该3000就3000                       ---从第1行hiredates顺序到当前行后1行(也就是到第2行），多少？300+1000                     
+   120 John       50 18-7月 -96      1000         19000         4000             3000             8000   ---比第1行hiredates顺序到当前行(也就是到第2行），多少？3000+1000=4000                     ---比第1行hiredates顺序到当前行后1行(也就是到第3行），多少？3000+1000+4000           
+   121 Joy        50 10-4月 -97      4000         19000         8000             4000            13000   ---比第1行hiredates顺序到当前行(也就是到第3行），多少？3000+1000+4000                     ---比第1行hiredates顺序到当前行后1行(也就是到第4行），多少？3000+1000+4000+5000           
+   123 Kate       50 10-10月-97      5000         19000        13000             8000            19000   ---比第1行hiredates顺序到当前行(也就是到第4行），多少？3000+1000+4000+5000                ---比第1行hiredates顺序到当前行后1行(也就是到第5行），多少？3000+1000+4000+5000+6000      
+   124 Jess       50 16-11月-99      6000         19000        19000            13000            19000   ---比第1行hiredates顺序到当前行(也就是到第4行），多少？3000+1000+4000+5000+6000           ---比第1行hiredates顺序到当前行后1行(也就是到第6行，第6行没记录了，那结果和上一次一样）
+
+   
+   
+   
+   
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为本行和该分区的最后一行，统计的是大于等于本记录hire_date之后的所有薪资
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) sum_cur_to_last,
+-- 窗口范围只是本行，所以与本行薪资一样
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN CURRENT ROW AND CURRENT ROW) sum_cur,
+-- 窗口范围为本行到本行的后一行，统计的本行到后一行的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN CURRENT ROW AND 1/*value_expr*/ FOLLOWING) sum_cur_to_aft1,
+-- 窗口范围为本行和本行的后一行，统计的本行前一行到本分区最后一行的薪资累计，如本行为分区首行，则直接从本行开始算起
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 1/*value_expr*/ PRECEDING AND UNBOUNDED FOLLOWING) sum_curbef1_to_last
+FROM emp  order by dept_id,hire_date;  
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_CUR_TO_LAST    SUM_CUR SUM_CUR_TO_AFT1 SUM_CURBEF1_TO_LAST
+------ ----- ------- -------------- ----- --------------- ---------- --------------- -------------------
+   100 Stev       10 01-1月 -90      7000            7000       7000            7000                7000
+   101 Tom        20 21-9月 -89      2000           10000       2000           10000               10000              解说SUM_CUR_TO_AFT1(dept_id=50部分）                                      
+   102 Mike       20 13-1月 -93      8000            8000       8000            8000               10000                                                                                    
+   122 Rich       50 01-5月 -95      3000           19000       3000            4000               19000   ---从第1行hiredates顺序到当前行(也就是第1行)到下1行，多少？3000+1000              
+   120 John       50 18-7月 -96      1000           16000       1000            5000               19000   ---比第1行hiredates顺序到当前行(也就是第2行）到下1行，多少？1000+4000            
+   121 Joy        50 10-4月 -97      4000           15000       4000            9000               16000   ---比第1行hiredates顺序到当前行(也就是第3行）到下1行，多少？4000+5000          
+   123 Kate       50 10-10月-97      5000           11000       5000           11000               15000   ---比第1行hiredates顺序到当前行(也就是第4行）到下1行，多少？5000+6000        
+   124 Jess       50 16-11月-99      6000            6000       6000            6000               11000   ---比第1行hiredates顺序到当前行(也就是第5行）到下1行，多少？下行没了，那就是6000     
+
+
+
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为该分区的本行和本行前一行，统计的是当本行和本行的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 1/*value_expr*/ PRECEDING AND CURRENT ROW) sum_cur_to_bef1,
+-- 窗口范围为该分区的本行前value_expr1到本行前value_expr2的累计，本例为本行前2行和前1行的累计，强调value_expr1>=value_expr2
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 2/*value_expr1*/ PRECEDING AND 1/*value_expr2*/ PRECEDING) sum_curbef2_to_bef1,
+-- 窗口范围为该分区的本行前value_expr1到本行后value_expr2的累计，本例为本行前1行到后2行的累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 1/*value_expr1*/ PRECEDING AND 2/*value_expr2*/ FOLLOWING) sum_curbef1_to_aft2,
+-- 窗口范围为该分区的本行后一行和本区最后一行，统计的是本行后一行和本区最后一行的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 1/*value_expr*/ FOLLOWING AND UNBOUNDED FOLLOWING) sum_curaft1_to_last
+FROM emp order by dept_id,hire_date;  
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_CUR_TO_BEF1 SUM_CURBEF2_TO_BEF1 SUM_CURBEF1_TO_AFT2 SUM_CURAFT1_TO_LAST
+------ ----- ------- -------------- ----- --------------- ------------------- ------------------- -------------------
+   100 Stev       10 01-1月 -90      7000            7000                                    7000
+   101 Tom        20 21-9月 -89      2000            2000                                   10000        8000                      解说SUM_CURBEF2_TO_BEF1(dept_id=50部分）                                   
+   102 Mike       20 13-1月 -93      8000           10000                2000               10000                                                                                                          
+   122 Rich       50 01-5月 -95      3000            3000                                    8000       16000           ---从第1行hiredate顺序到当前行(也就是第1行),往前2位，没数字，往前1位，依然没数字！               
+   120 John       50 18-7月 -96      1000            4000                3000               13000       15000           ---比第1行hiredate顺序到当前行(也就是第2行）往前2位，没数字，往前1位，3000                    
+   121 Joy        50 10-4月 -97      4000            5000                4000               16000       11000           ---比第1行hiredate顺序到当前行(也就是第3行）往前2位，3000，往前1位，1000，是3000+1000               
+   123 Kate       50 10-10月-97      5000            9000                5000               15000        6000           ---比第1行hiredate顺序到当前行(也就是第4行）往前2位，1000，往前1位，4000，是1000+4000                
+   124 Jess       50 16-11月-99      6000           11000                9000               11000                       ---比第1行hiredate顺序到当前行(也就是第5行）往前2位，4000，往前1位，5000，是4000+5000     
+
+
+
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为该分区的本行后value_expr1到本行后value_expr2的累计，本例为本行后1行和后2行的累计，强调value_expr1<=value_expr2
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS BETWEEN 1/*value_expr1*/ FOLLOWING AND 2/*value_expr2*/ FOLLOWING) sum_curaft1_to_after2,
+-- 窗口范围为该分区的第一行,结束行缺省为本行，与之前出现的sum_sal_part_order，sum_1_to_cur等同
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS UNBOUNDED PRECEDING) sum_1_to_cur,
+-- 窗口范围仅为当前行，所以与本行薪资一样，与之前出现的sum_cur一样
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS CURRENT ROW) sum_cur,
+-- 窗口范围为该分区的本行和本行前一行，统计的是本行前一行和本行的薪资累计,与之前出现的sum_cur一样
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date  ROWS 1/*value_expr*/ PRECEDING) sum_cur_to_bef1
+FROM emp order by dept_id,hire_date;  
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_CURAFT1_TO_AFTER2 SUM_1_TO_CUR    SUM_CUR SUM_CUR_TO_BEF1
+------ ----- ------- -------------- ----- --------------------- ------------ ---------- ---------------
+   100 Stev       10 01-1月 -90      7000                               7000       7000            7000
+   101 Tom        20 21-9月 -89      2000                  8000         2000       2000            2000               解说SUM_CURAFTER1_TO_AFTER1(dept_id=50部分）                                  
+   102 Mike       20 13-1月 -93      8000                              10000       8000           10000                                                                                         
+   122 Rich       50 01-5月 -95      3000                  5000         3000       3000            3000    ---从第1行hiredate顺序到当前行(也就是第1行),往后1位，1000，后2位，4000，是1000+4000   
+   120 John       50 18-7月 -96      1000                  9000         4000       1000            4000    ---从第1行hiredate顺序到当前行(也就是第2行),往后1位，4000，后2位，5000，是4000+5000         
+   121 Joy        50 10-4月 -97      4000                 11000         8000       4000            5000    ---从第1行hiredate顺序到当前行(也就是第3行),往后1位，5000，后2位，6000，是5000+6000   
+   123 Kate       50 10-10月-97      5000                  6000        13000       5000            9000    ---从第1行hiredate顺序到当前行(也就是第4行),往后1位，6000，后2位，没了
+   124 Jess       50 16-11月-99      6000                              19000       6000           11000    ---从第1行hiredate顺序到当前行(也就是第5行),往后1位，没了，后2位，更没了！
+   
+   
+   
+   
+--如果涉及到当前行的运算，比如 CURRENT ROW的关键字，则必须要有order by    
+
+请注意：如下语句无法执行，会报ORA-30485: 在窗口说明中丢失 ORDER BY 表达式的错误
+SELECT emp_id,ename,dept_id,hire_date,sal,     
+       SUM(sal) OVER(PARTITION BY dept_id order by hire_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) sum1,
+       SUM(sal) OVER(PARTITION BY dept_id  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) sum2
+  FROM emp
+ order by dept_id, hire_date;
+
+
+
+
+rows 是关键字，指定窗口由物理行构成，即物理座位排数。
+
+between…and是关键字，用来指定窗口的起始点和终结点；
+Unbounded preceding指明窗口开始于分组的第一行；
+Current row，作为起始点，指明窗口开始于当前行或当前值；作为终结点，指明窗口结束于当前行或当前值；
+Unbounded following指明窗口结束于分组的最后一行；
+Value_expr为物理或逻辑偏移量表达式。
+
+
+Windowing_clause用来指定分组中当前行的计算范围。
+不论rows还是range窗口，窗口总是在分组中从上至下滑动的。
+窗口范围可以由between…and限定，也可以不用between…and，不用的都表示窗口到当前行结束。
+
+ROWS窗口，是由分组排序后分组中若干连续的行构成的窗口。
+以下是全部合法的ROWS窗口范围:
+1)rows between unbounded preceding and unbounded following
+窗口开始于分组第一行，结束于分组最后一行。
+2)rows [between] unbounded preceding [and current row]
+窗口开始于分组第一行，结束于当前行。
+3)rows between unbounded preceding and value_expr preceding
+窗口开始于分组第一行，结束于当前行前value_expr行。
+4)rows between unbounded preceding and value_expr following
+窗口开始于分组第一行，结束于当前行后value_expr行。
+5)rows between current row and unbounded following
+窗口开始于当前行，结束于分组最后一行。
+6)rows [between current row and] current row
+窗口开始于当前行，结束于当前行。
+7)rows between current row and value_expr following
+窗口开始于当前行，结束于当前行后value_expr行。
+8)rows between value_expr preceding and unbounded following
+窗口开始于当前行前value_expr行，结束于分组最后一行。
+9)rows [between value_expr] preceding [and current row]
+窗口开始于当前行前value_expr行，结束于当前行。
+10)rows between value_expr1 preceding and value_expr2 preceding
+窗口开始于当前行前value_expr1行，结束于当前行前value_expr2行。这里一定要满足value_expr1>=value_expr2。
+11)rows between value_expr1 preceding and value_expr2 following
+窗口开始于当前行前value_expr1行，结束于当前行后value_expr2行。
+12)rows between value_expr following and unbounded following
+窗口开始于当前行后value_expr行，结束于分组最后一行。
+13)rows between value_expr1 following and value_expr2 following
+窗口开始于当前行后value_expr1行，结束于当前行后value_expr2行。这里一定要满足value_expr1<=value_expr2
+14)rows unbounded preceding
+与2等价。
+15)rows current row
+与6等价。
+16)rows value_expr preceding
+与9等价。
+   
+============================
+分析函数学习之_开窗分解2_range.sql
+
+/*
+
+1. RANGE窗口仅对NUMBERS和DATES起作用,因为不可能从VARCHAR2中增加或减去N个单元
+
+2. 在RANGE的开窗中，ORDER BY中只能有一列；ROWS的开窗的ORDER BY 可以有多列。 
+
+*/
+
+
+Rich table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101,  'Tom',   20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102,  'Mike',  20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120,  'John',  50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121,  'Joy',   50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122,  'RICH',  50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123,  'Kate',  50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124,  'Jess',  50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100,  'Stev',  10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col sal format 9999
+col ename format a5前
+col hire_date FORMAT DATE
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 后面均为以dept_id分组，再按hire_date排序，且所有统计不能跨分区，由于是逻辑范围，因此PRECEDING和FOLLOWING表达式有符号
+-- 窗口范围为该分区的第一行到该分区的最后一行，与sum_sal_part等同,在非条件表达式中等同于ROWS
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal  RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) sum_1_to_last,
+-- 窗口范围为该分区的第一行到本行，与sum_sal_part_order等同,在非条件表达式中等同于ROWS
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal  RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) sum_1_to_cur,
+-- 窗口范围为该分区内小于本记录sal少2500的所有的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN UNBOUNDED PRECEDING AND 2500/*value_expr*/ PRECEDING) sum1,
+-- 窗口范围为该分区内小于本记录sal多2500的所有的薪资累计 
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN UNBOUNDED PRECEDING AND 2500/*value_expr*/ FOLLOWING) sum2
+FROM emp;
+
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL SUM_1_TO_LAST SUM_1_TO_CUR       SUM1       SUM2
+------ ----- ------- -------------- ----- ------------- ------------ ---------- ----------             有数字，记住precding,就是减，following是加，就对了。
+   100 Stev       10 01-1月 -90      7000          7000         7000                  7000
+   101 Tom        20 21-9月 -89      2000         10000         2000                  2000             解说SUM1（dept_id=50部分）                                       解说SUM2(dept_id=50部分）    
+   102 Mike       20 13-1月 -93      8000         10000        10000       2000      10000     
+   120 John       50 18-7月 -96      1000         19000         1000                  4000  ---比1000-2500少的数字有木有，没有                               ---比1000+2500少的数字有木有，有啊，1000和3000                        
+   122 RICH       50 01-5月 -95      3000         19000         4000                 13000  ---比3000-2500少的数字有木有，没有，该组第1排的1000也比500大     ---比3000+2500少的数字有木有，有啊，1到4排都是 
+   121 Joy        50 10-4月 -97      4000         19000         8000       1000      19000  ---比4000-2500少的数字有木有，有啊，该组第1排的1000就比1500小    ---比4000+2500少的数字有木有，有啊，该组都是 
+   123 Kate       50 10-10月-97      5000         19000        13000       1000      19000  ---比5000-2500少的数字有木有，有啊，该组第1排的1000就比2500小    ---比5000+2500少的数字有木有，有啊，该组都是
+   124 Jess       50 16-11月-99      6000         19000        19000       4000      19000  ---比6000-2500少的数字有木有，有啊，该组第1排和第2排哦。         ---比6000+2500少的数字有木有，有啊，该组都是 
+                                                                                               
+
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为本行和该分区的最后一行，统计的是大于等于本记录hire_date之后的所有薪资,在非条件表达式中等同于ROWS
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) sum3,
+-- 窗口范围只是本行，所以与本行薪资一样
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal  RANGE BETWEEN CURRENT ROW AND CURRENT ROW) sum4,
+-- 窗口范围为该分区内本记录起和小于本记录sal多2500的所有的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal  RANGE BETWEEN CURRENT ROW AND 2500/*value_expr*/ FOLLOWING) sum5,
+-- 窗口范围为该分区内本记录起和小于本记录sal多2500的所有的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal  RANGE BETWEEN 2500/*value_expr*/ PRECEDING AND UNBOUNDED FOLLOWING) sum6
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL       SUM3       SUM4       SUM5       SUM6
+------ ----- ------- -------------- ----- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90      7000       7000       7000       7000       7000
+   101 Tom        20 21-9月 -89      2000      10000       2000       2000      10000
+   102 Mike       20 13-1月 -93      8000       8000       8000       8000       8000
+   120 John       50 18-7月 -96      1000      19000       1000       4000      19000
+   122 RICH       50 01-5月 -95      3000      18000       3000      12000      19000
+   121 Joy        50 10-4月 -97      4000      15000       4000      15000      18000
+   123 Kate       50 10-10月-97      5000      11000       5000      11000      18000
+   124 Jess       50 16-11月-99      6000       6000       6000       6000      15000
+
+
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为该分区内大于本记录sal少2500，并且截止到当前记录的所有的薪资累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN 2500/*value_expr*/ PRECEDING AND CURRENT ROW) sum7,
+-- 窗口范围为该分区的本行current_value-value_expr1到本行current_value-value_expr2的累计，强调value_expr1>=value_expr2
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN 2500/*value_expr1*/ PRECEDING AND 1000/*value_expr2*/ PRECEDING) sum8,
+-- 窗口范围为该分区的本行current_value-value_expr1到本行current_value+value_expr2之间的累计
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN 2500/*value_expr1*/ PRECEDING AND 1000/*value_expr2*/ FOLLOWING) sum9,
+-- 窗口范围为该分区内大于本记录sal多2500的所有的薪资累计 
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN 2500/*value_expr*/ FOLLOWING AND UNBOUNDED FOLLOWING) sum10
+FROM emp;
+
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL       SUM7       SUM8       SUM9      SUM10
+------ ----- ------- -------------- ----- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90      7000       7000                  7000
+   101 Tom        20 21-9月 -89      2000       2000                  2000       8000                                 解说SUM9
+   102 Mike       20 13-1月 -93      8000       8000                  8000
+   120 John       50 18-7月 -96      1000       1000                  1000      15000               ---有木有介于 1000-2500 到 1000+1000之间的数字，有，该组第一行1000就介于其中
+   122 RICH       50 01-5月 -95      3000       4000       1000       8000       6000               ---有木有介于 3000-2500 到 3000+1000之间的数字，有，该第1行到第3行都是，第3行正好符合 
+   121 Joy        50 10-4月 -97      4000       7000       3000      12000                          ---有木有介于 4000-2500 到 4000+1000之间的数字，有，该第2行到第4行都是，第4行正好符合
+   123 Kate       50 10-10月-97      5000      12000       7000      18000                          ---有木有介于 5000-2500 到 5000+1000之间的数字，有，该第2行到第5行都是，第5行正好符合 
+   124 Jess       50 16-11月-99      6000      15000       9000      15000                          ---有木有介于 6000-2500 到 6000+1000之间的数字，有，该第3行到第5行都是 
+                    
+
+SELECT 
+ emp_id,ename,dept_id,hire_date,sal, 
+-- 窗口范围为该分区的本行current_value+value_expr1到本行current_value+value_expr2的累计，强调value_expr1<=value_expr2 
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE BETWEEN 1000/*value_expr1*/ FOLLOWING AND 2500/*value_expr2*/ FOLLOWING) sum11,
+-- 窗口范围为该分区的第一行,结束行缺省为本行，与sum_sal_part_order，sum_2等同,在非条件表达式中等同于ROWS
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE UNBOUNDED PRECEDING) sum12,
+-- 窗口范围仅为当前行，在非条件表达式中等同于ROWS
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE CURRENT ROW) sum13,
+-- 窗口范围为该分区内大于本记录sal少2500，并且截止到当前记录的所有的薪资累计 
+ SUM(sal) OVER (PARTITION BY dept_id ORDER BY sal RANGE 2500/*value_expr*/  PRECEDING) sum14
+FROM emp;
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL      SUM11      SUM12      SUM13      SUM14
+------ ----- ------- -------------- ----- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90      7000                  7000       7000       7000
+   101 Tom        20 21-9月 -89      2000                  2000       2000       2000
+   102 Mike       20 13-1月 -93      8000                 10000       8000       8000
+   120 John       50 18-7月 -96      1000       3000       1000       1000       1000
+   122 RICH       50 01-5月 -95      3000       9000       4000       3000       4000
+   121 Joy        50 10-4月 -97      4000      11000       8000       4000       7000
+   123 Kate       50 10-10月-97      5000       6000      13000       5000      12000
+   124 Jess       50 16-11月-99      6000                 19000       6000      15000
+   
+  
+   
+range 是关键字，指定窗口由逻辑偏移量构成，即符合指定的逻辑条件的范围。   
+
+between…and是关键字，用来指定窗口的起始点和终结点；
+Unbounded preceding指明窗口开始于分组的第一行；
+Current row，作为起始点，指明窗口开始于当前行或当前值；作为终结点，指明窗口结束于当前行或当前值；
+Unbounded following指明窗口结束于分组的最后一行；
+Value_expr为物理或逻辑偏移量表达式。
+
+  
+RANGE窗口，相当于给order_by_clause中的expr加一个where限定条件，分组中满足条件
+(当order by expr asc时，where expr between a and b
+当order by expr desc时 where expr between b and a)的所有行构成一个逻辑窗口。
+其中a由分组中第ra行的值计算而来，b由分组中第rb行的值计算而来，且ra<=rb。
+
+根据range中是否包含unbounded，可以分为两类，含unbounded range窗口，和不含unbounded range窗口。
+对于前者，有ra<=rb。当order by expr asc时，a<=b，须使用where expr between a and b；当order by expr desc时，a>b，须使用where expr between b and a。
+对于后者，有ra=rb。总有a<=b，使用where expr between a and b。
+
+对于在order_by_clause中可以使用多个expr的窗口：
+Range between unbounded preceding and current row
+Range between current row and unbounded following
+当它们使用多个expr排序时(注意不是一个)分别等价于：
+Rows between unbounded preceding and current row
+Rows between current row and unbounded following
+
+假设分组第一行的值为first_value，最后一行的值为last_value。当前行的值为current_value。
+1)range between unbounded preceding and unbounded following
+按升序排序的时候，表达式介于第一个值和最后一个值之间，或者
+按降序排序的时候，表达式介于最后一个值和第一个值之间
+2)range [between] unbounded preceding [and current row]
+表达式介于第一个值与当前行的值之间，或者
+表达式介于当前行的值和第一个值之间
+3)range between unbounded preceding and value_expr preceding
+表达式介于第一个值与当前行的值-value_expr之间，或者
+表达式介于当前行的值-value_expr与第一个值之间
+4)range between unbounded preceding and value_expr following
+表达式介于第一个值与当前行的值+value_expr之间，或者
+表达式介于当前行的值+value_expr与第一个值之间
+5)range between current row and unbounded following
+表达式介于当前行的值和最后一个值之间，或者
+表达式介于最后一个值和当前行的值之间
+6)range [between current row and] current row
+表达式等于当前行的值
+7)range between current row and value_expr following
+表达式介于当前行的值和当前行的值+value_expr之间
+8)range between value_expr preceding and unbounded following
+表达式介于当前行的值-value_expr和最后一个值之间
+9)range [between value_expr] preceding [and current row]
+表达式介于当前行的值-value_expr和当前行的值之间
+10)range between value_expr1 preceding and value_expr2 preceding
+这里一定要满足value_expr1>=value_expr2。
+然后表达式介于当前行的值-value_expr1和当前行的值-value_expr2之间
+11)range between value_expr1 preceding and value_expr2 following
+表达式介于当前行的值-value_expr1和当前行的值+value_expr2之间
+12)range between value_expr following and unbounded following
+表达式介于当前行的值+value_expr和最后一个值之间
+表达式介于最后一个值和当前行的值+value_expr之间
+13)range between value_expr1 following and value_expr2 following
+这里一定要满足value_expr1<=value_expr2。
+然后表达式介于当前行的值+value_expr1和当前行的值+value_expr2之间
+14)range unbounded preceding
+与2等价。
+15)range current row
+与6等价。
+16)range value_expr preceding
+与9等价。
+注意事项： 
+1.若windowing_clause由rows指定，则：
+(1)value_expr是物理偏移量，它必须是常量或值为非负数的表达式。
+(2)若value_expr是起点的一部分，那么它必须在终点之前对行求值。
+2.若windowing_clause由range指定，则:
+(1)value_expr是逻辑偏移量。它必须是常量或值为非负的表达式或时间间隔文字常量。
+(2)value_expr值为一个数字，那么order_by_clause中 expr必须为数字或date类型。
+(3)value_expr为一个间隔值，那么order_by_clause中expr必须是一个date类型。
+3.若完全忽略windowing_clause，那么默认的窗口范围为 range between unbounded preceding and current row。
+关于ROWS、RANGE中的条件组合加起来达到32种，但实际上不过是几个关键字的排列组合而已，只要了解几个关键字的含义，在应用时加以灵活使用即可。
+   
+   
+
+==============================
+分析函数学习之_开窗分解3_keep.sql
+/*
+聚合函数的特殊关键字KEEP
+ 
+聚合函数MIN, MAX, SUM, AVG, COUNT, VARIANCE,和STDDEV, 当使用KEEP 时和DENSE_RANK FIRST /DENSE_RANK LAST一起使用，获取一组中排名第一或者排名最后的记录。必须有order by 子句用来排序。后面也可以接over（）分析函数部分。
+ 
+Min（col2）keep（dense_rank first order by col1）保留按col1排名第一的col2的最小值。
+ 
+Min（col2）keep（dense_rank first order by col1）over (partition by col3) 按col3分组保留按col1排名各组第一的col2的最小值。   
+*/
+
+
+DROP table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000                  
+set pagesize 2000                  
+col emp_id format 999              
+col dept_id format 99              
+col sal format 9999                
+col ename format a5                
+col hire_date FORMAT DATE          
+
+
+
+
+---需要注意的是KEEP只能与DENSE_RANK FIRST、DENSE_RANK LAST搭配使用。
+SELECT emp_id,ename,dept_id,hire_date,sal,
+ DENSE_RANK() OVER(PARTITION BY dept_id ORDER BY sal) DENSE_RANK,
+ MIN(hire_date) KEEP (DENSE_RANK FIRST ORDER BY sal) OVER(PARTITION BY dept_id) min_first,
+ MIN(hire_date) KEEP (DENSE_RANK LAST ORDER BY sal) OVER(PARTITION BY dept_id) min_last,
+ MAX(hire_date) KEEP (DENSE_RANK FIRST ORDER BY sal) OVER(PARTITION BY dept_id) max_first,
+ MAX(hire_date) KEEP (DENSE_RANK LAST ORDER BY sal) OVER(PARTITION BY dept_id) max_last
+ FROM emp;
+
+
+EMP_ID ENAME DEPT_ID HIRE_DATE        SAL DENSE_RANK MIN_FIRST      MIN_LAST       MAX_FIRST      MAX_LAST
+------ ----- ------- -------------- ----- ---------- -------------- -------------- -------------- -----------
+   100 Stev       10 01-1月 -90      7000          1 01-1月 -90     01-1月 -90     01-1月 -90     01-1月 -90
+   101 Tom        20 21-9月 -89      2000          1 21-9月 -89     13-1月 -93     21-9月 -89     13-1月 -93
+   102 Mike       20 13-1月 -93      8000          2 21-9月 -89     13-1月 -93     21-9月 -89     13-1月 -93
+   120 John       50 18-7月 -96      1000          1 18-7月 -96     16-11月-99     10-4月 -97     16-11月-99
+   121 Joy        50 10-4月 -97      1000          1 18-7月 -96     16-11月-99     10-4月 -97     16-11月-99
+   122 Rich       50 01-5月 -95      3000          2 18-7月 -96     16-11月-99     10-4月 -97     16-11月-99
+   123 Kate       50 10-10月-97      5000          3 18-7月 -96     16-11月-99     10-4月 -97     16-11月-99
+   124 Jess       50 16-11月-99      6000          4 18-7月 -96     16-11月-99     10-4月 -97     16-11月-99
+   
+   
+   
+   
+
+
+
+
+
+
+=============================================
+分析函数学习之_特别之处.sql
+/*
+
+分析函数计算基于group by的列，分组查询出的行被称为"比照(window)"，在根据over()执行过程中，针对每一行都会重新定义比照。比照为"当前行(current row)"确定执行计算的行的范围。
+这点一定要理解清楚。它是分析函数生成数据的原理。
+
+分析函数与聚合函数有些相似，都有聚合、分组、范围、排序的概念，不过他们之间显而易见的巨大差别就在于：分析函数是每组有多少行就返回多少行（好比多一个伪列）。而聚合函数是每组不管有多少行都被聚合成一行。
+
+*/
+
+
+       
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col ename format a5
+
+
+
+SELECT
+  emp_id,ename,dept_id,hire_date,sal,
+  SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) sum_sal,
+  SUM(sal) OVER (PARTITION BY dept_id ) sum_sal2,
+  SUM(sal) OVER ( ) sum_sal3
+  FROM emp;
+ 
+EMP_ID ENAME DEPT_ID HIRE_DATE             SAL    SUM_SAL   SUM_SAL2   SUM_SAL3
+------ ----- ------- -------------- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90           7000       7000       7000      36000
+   101 Tom        20 21-9月 -89           2000       2000      10000      36000
+   102 Mike       20 13-1月 -93           8000      10000      10000      36000
+   120 John       50 18-7月 -96           1000       1000      19000      36000
+   121 Joy        50 10-4月 -97           4000       5000      19000      36000
+   123 Kate       50 10-10月-97           5000      10000      19000      36000
+   124 Jess       50 16-11月-99           6000      16000      19000      36000
+   122 Rich       50                      3000      19000      19000      36000
+   
+   
+SELECT dept_id ,SUM(sal) FROM emp GROUP BY dept_id ORDER BY  dept_id;
+
+
+DEPT_ID   SUM(SAL)
+------- ----------
+     10       7000
+     20      10000
+     50      19000
+     
+     
+     
+来看看分析函数和聚合函数的差异：
+
+  1. 分析函数是每组有多少行就返回多少行（好比多一个伪列）。而聚合函数是每组不管有多少行都被聚合成一行。     
+  
+  2. 分析函数的order BY 和聚合函数order BY 排序的概念不一样，分析函数的order BY 同时还标记从分组第一行到当前行的范围圈定，然后根据这个范围，依据这个顺序开始聚合累加。
+     
+
+来看看分析函数和聚合函数的相似之处：
+
+  都有聚合、分组、范围、排序的说法（只是有些差异）
+     
+
+==============================
+分析函数学习之_语法概述.sql
+/*
+
+分析函数语法:
+
+在Oracle官方文档中，oracle分析函数的标准语法如下：
+Analytic_function(arg1,arg2,...) OVER(analytic_clause)
+
+也可描述成如下：
+
+FUNCTION_NAME(<argument>,<argument>...)
+OVER
+(<Partition-Clause><Order-by-Clause><Windowing Clause>)
+
+例:
+sum(sal) over (partition by deptno order by ename) new_alias
+
+sum就是函数名
+
+(sal)是分析函数的参数,每个函数有0~3个参数,参数可以是表达式,例如:sum(sal+comm)
+
+over() 是开窗函数，这是开启分析函数的起点，对于既可作为聚集函数又可作为分析函数的函数，Oracle无法识别，必须用over来标识此函数为分析函数，此处不可省！
+
+partition by deptno 是可选的分区子句,如果不存在任何分区子句,则全部的结果集可看作一个单一的大区
+ORDER by则是窗口规则;
+ROW |range BETWEEN...AND 是窗口范围(row就像通过自身位置的前后物理座位来找对应的位置，相对固定；而range是通过某种条件来找位置，需要计算方能确定相应位置，如长我3岁和小我两岁的人。)
+
+
+关于窗口范围的取数方式有多种，看似非常复杂，其实不难，我们开始慢慢剖析：
+ 
+ 关键位置就3个：1. 分组第一行Unbounded preceding  2. 当前行Current ROW  3.分组最后一行 Unbounded following
+ 
+ 接下来，产生了最简单的三个取数范围： 
+ 
+     分组第一行->当前行 rows [between] unbounded preceding [and current row]，
+     分组第一行->分组最后一行   rows between unbounded preceding and unbounded following， 
+     当前行->分组最后一行 rows between current row and unbounded following
+     
+ 为什么课程分析函数会让人觉的非常复杂呢，我们来看看，这个窗口范围有两种取数方式，一个是根据物理位置，就是row关键字，一个是根据逻辑位置取数，就是range,这时刚才的取数范围从3个变成6个了，如下：
+ 
+ ROWS的  分组第一行->当前行，分组第一行->分组最后一行， 当前行->分组最后一行
+ RANGE的 分组第一行->当前行，分组第一行->分组最后一行， 当前行->分组最后一行
+ 
+ 不过这样的场景都考虑周全了吗，还有没有漏考虑的,有啊，我们继续看看有哪些可能：
+
+   从分组第一行->当前行前n行             rows between unbounded preceding and n行 preceding
+   从分组第一行->当前行后n行             rows between unbounded preceding and n行 following                                   
+                                    
+   从当前行->当前行后n行                 rows between current row and n行 following
+   从当前行前n行->当前行                 rows between n行 preceding and CURRENT ROW
+                                    
+   从当前行前n行->分组最后一行           rows between n行 preceding and unbounded following
+   从当前行后n行->分组最后一行           rows between n行 following and unbounded following
+   从当前行前n1行->到当前行前n2行        rows between n1行 preceding and n2行 preceding
+   从当前行后n1行->到当前行后n2行        rows between n1行 following and n2行 following
+   
+   还有没有，有！
+   
+   从当前行前n1行到当前行后n2行          rows BETWEEN n1行 preceding and n2行 following
+   
+   还有没有比如从分组第一行后n行到当前行，从当前行到分组最后一行前n行啥的啊？ 
+   哦，那倒是没有了，对了，你脑子还不够迷糊啊，记这么多？？？
+   
+   总算结束了，不过还有一个窗口开始于当前行，结束于当前行的，不过这无意义，要了干啥呢？所以，算算，至少有9个。
+   考虑到rows 和range两套人马，这下又多了18个了。加上前面的6个，就是24个了。不过后面多出来的这18个，用到的几率比前面6个要少不少。
+
+   对了，还有一件很重要的事要交代
+     
+     不写between AND  ,在有order BY 的情况下，就是分组第一行到当前行                        BETWEEN unbounded preceding  and current row
+     不写between AND  ,在没有order BY 的情况下，就是分组第一行到分组最后一行；              BETWEEN unbounded preceding and unbounded following 
+   
+
+*/
+
+   
+     
+drop table emp purge;
+
+CREATE TABLE emp
+(
+  emp_id    NUMBER(6),
+  ename  VARCHAR2(45),
+  dept_id   NUMBER(4),
+  hire_date DATE,
+  sal    NUMBER(8,2)
+);
+
+--创建emp数据
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (101, 'Tom',    20,  TO_DATE('21-09-1989', 'DD-MM-YYYY'), 2000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (102, 'Mike',   20,  TO_DATE('13-01-1993', 'DD-MM-YYYY'), 8000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (120, 'John',   50,  TO_DATE('18-07-1996', 'DD-MM-YYYY'), 1000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (121, 'Joy',    50,  TO_DATE('10-04-1997', 'DD-MM-YYYY'), 4000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (122, 'Rich',   50,  TO_DATE('01-05-1995', 'DD-MM-YYYY'), 3000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (123, 'Kate',   50,  TO_DATE('10-10-1997', 'DD-MM-YYYY'), 5000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (124, 'Jess',   50,  TO_DATE('16-11-1999', 'DD-MM-YYYY'), 6000);
+INSERT INTO emp (emp_id, ename, dept_id, hire_date, sal) VALUES (100, 'Stev',   10,  TO_DATE('01-01-1990', 'DD-MM-YYYY'), 7000);
+COMMIT;
+
+set linesize 2000
+set pagesize 2000
+col emp_id format 999
+col dept_id format 99
+col ename format a5
+
+SELECT
+  emp_id,ename,dept_id,hire_date,sal,
+  SUM(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) sum_sal,
+  SUM(sal) OVER (PARTITION BY dept_id ) sum_sal2,
+  SUM(sal) OVER ( ) sum_sal3,
+  MAX(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) max_sal,
+  MIN(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) min_sal,
+  COUNT(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) count_sal,
+  AVG(sal) OVER (PARTITION BY dept_id ORDER BY hire_date) avg_sal
+  FROM emp;
+ 
+
+EMP_ID ENAME DEPT_ID HIRE_DATE             SAL    SUM_SAL   SUM_SAL2   SUM_SAL3    MAX_SAL    MIN_SAL  COUNT_SAL    AVG_SAL
+------ ----- ------- -------------- ---------- ---------- ---------- ---------- ---------- ---------- ---------- ----------
+   100 Stev       10 01-1月 -90           7000       7000       7000      36000       7000       7000          1       7000
+   101 Tom        20 21-9月 -89           2000       2000      10000      36000       2000       2000          1       2000
+   102 Mike       20 13-1月 -93           8000      10000      10000      36000       8000       2000          2       5000
+   122 Rich       50 01-5月 -95           3000       3000      19000      36000       3000       3000          1       3000
+   120 John       50 18-7月 -96           1000       4000      19000      36000       3000       1000          2       2000
+   121 Joy        50 10-4月 -97           4000       8000      19000      36000       4000       1000          3 2666.66667
+   123 Kate       50 10-10月-97           5000      13000      19000      36000       5000       1000          4       3250
+   124 Jess       50 16-11月-99           6000      19000      19000      36000       6000       1000          5       3800
+
+已选择8行。
+
+
+=========================
